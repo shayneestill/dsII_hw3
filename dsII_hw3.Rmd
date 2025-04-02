@@ -29,6 +29,11 @@ library(boot)
 library(table1)
 library(knitr)
 library(pls)
+library(glmnet)
+library(pROC)
+library(pdp)
+
+
 
 ```
 
@@ -50,11 +55,15 @@ Split the dataset into two parts: training data (70%) and test data (30%).
 # Load auto data
 auto_data = read_csv(file = "/Users/shayneestill/Desktop/Data Science II/dsII_hw3/auto.csv", 
                         na = c("NA", ".", "")) |>
-                        janitor::clean_names()
+                        janitor::clean_names() |>
+  mutate(mpg_cat = ifelse(mpg_cat == "high", 1, 0))
+
 drop_na(auto_data)
 set.seed(0401)
 
 data_split <- initial_split(auto_data, prop = 0.8)
+
+ctrl1 <- trainControl(method = "cv", number = 10)
 
 # Extract the training and test data
 training_data <- training(data_split)
@@ -67,20 +76,91 @@ testing_data <- testing(data_split)
 If so, identify them. If there are none, please provide an explanation.
 
 ```{r}
+set.seed(0401)
+glm.fit <- glm(mpg_cat ~ .,
+data = training_data,
+family = binomial(link = "logit"))
 
+summary(glm.fit)
 ```
 
+Yes, there are redundant predictors in this model. cylinders, displacement, horsepower, acceleration, and origin all have a p-value less than 0.05 and are not statistically significant. 
+
+```{r}
+# predict probabilities for test data
+set.seed(0401)
+test.pred.prob <- predict(glm.fit, newdata = testing_data,
+type = "response")
+
+# convert probabilities to binary predictions using a 0.5 cutoff
+test.pred <- rep(0, length(test.pred.prob))
+test.pred[test.pred.prob > 0.5] <- 1
+
+# generate confusion matrix
+confusionMatrix(data = as.factor(test.pred),
+reference = testing_data$mpg_cat,
+positive = "1")
+
+testing_data$mpg_cat <- factor(testing_data$mpg_cat, levels = c(0, 1))
+
+test.pred <- factor(test.pred, levels = c(0, 1))
+
+confusionMatrix(data = test.pred, reference = testing_data$mpg_cat, positive = "1")
+```
+
+```{r}
+set.seed(0401)
+# generate ROC curve for the logistic regression model
+roc.glm <- roc(testing_data$mpg_cat, test.pred.prob)
+
+# plot the ROC curve and the smoothed ROC curve
+plot(roc.glm, legacy.axes = TRUE, print.auc = TRUE)
+plot(smooth(roc.glm), col = 4, add = TRUE)
+```
+
+AUC = 0.975. The larger the AUC, the better the classifier. The logistic regression is considered very good. 
 
 (b) Train a multivariate adaptive regression spline (MARS) model. Does the MARS
 model improve prediction performance compared to logistic regression?
 
 ```{r}
+set.seed(0401)
+
+mars_grid <- expand.grid(
+  degree = 1:4,     
+  nprune = 2:20     
+)
+
+mars.fit <- train(mpg_cat ~ .,
+                  data = training_data,
+                  method = "earth",
+                  tuneGrid = mars_grid,
+                  trControl = ctrl1)
+
+ggplot(mars.fit)
+
+mars.fit$bestTune
+
+mars_coef <- coef(mars.fit$finalModel)
+
+mars_coef
+```
+
+```{r}
+# Set seed for reproducibility
+set.seed(299)
+
+# Specify MARS grid - first attempt 
+# mars_grid <- expand.grid(
+#  degree = 1:3, # degree of interactions
+#  nprune = 2:15  # no. of retained terms
+# )
+
 
 ```
 
 
 (c) Perform linear discriminant analysis using the training data. Plot the linear discriminant(s).
-
 ```{r}
 
 ```
